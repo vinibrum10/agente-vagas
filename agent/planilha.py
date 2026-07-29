@@ -23,6 +23,7 @@ LIMIAR_SUGESTAO = 0.6  # so para sugestao manual — nunca decide reaproveitar r
 
 TABELA_CANDIDATURAS = "vagas_candidaturas"
 TABELA_BANCO = "vagas_respostas_banco"
+TABELA_PERFIL_FIXO = "vagas_perfil_fixo"
 
 
 def normalizar(texto: str) -> str:
@@ -39,6 +40,49 @@ def _similaridade(a: str, b: str) -> float:
     pa, pb = set(a.split()), set(b.split())
     jaccard = len(pa & pb) / len(pa | pb) if (pa and pb) else 0.0
     return max(seq, jaccard)
+
+
+def classificar_campo_perfil(pergunta_normalizada: str) -> str | None:
+    """Classifica uma pergunta pendente para um campo do "Meu Perfil de
+    Candidatura" (fatos fixos, ja verificados pelo usuario).
+
+    Aceita sinonimos bem mais amplos que o banco de respostas reativo: aqui
+    sao so 8 campos conhecidos com resposta ja confirmada, nao um universo
+    aberto de perguntas parecidas — o risco de uma classificacao errada e
+    baixo e so afeta esses 8 conceitos especificos.
+    """
+    p = pergunta_normalizada
+    palavras_p = set(p.split())
+
+    def tem(*palavras: str) -> bool:
+        """Frases (com espaco) casam por substring; palavra unica exige match
+        exato de token — evita "escola" casar dentro de "escolaridade"."""
+        for alvo in palavras:
+            if " " in alvo:
+                if alvo in p:
+                    return True
+            elif alvo in palavras_p:
+                return True
+        return False
+
+    if tem("linkedin"):
+        return "linkedin_url"
+    if tem("salarial", "salario", "salary", "salaries"):
+        return "piso_salarial"
+    if tem("ingles", "english"):
+        return "nivel_ingles"
+    if tem("autorizado a trabalhar", "authorized to work", "work authorization",
+           "documentacao para trabalhar", "elegivel para trabalhar", "legal to work"):
+        return "autorizado_trabalhar_brasil"
+    if tem("ano", "year") and tem("inicio", "start"):
+        return "ano_inicio"
+    if tem("ano", "year") and tem("termino", "fim", "conclusao", "end", "graduation"):
+        return "ano_termino"
+    if tem("escola", "instituicao", "universidade", "faculdade", "institution", "school"):
+        return "escola"
+    if tem("curso", "disciplina", "major", "field of study", "area de estudo", "course"):
+        return "curso"
+    return None
 
 
 # ═══════════════════════ Supabase (backend principal) ═══════════════════════
@@ -97,6 +141,16 @@ def _registrar_supabase(vaga: dict, score: int, status: str):
         client.table(TABELA_CANDIDATURAS).update(payload).eq("id", existente).execute()
     else:
         client.table(TABELA_CANDIDATURAS).insert(payload).execute()
+
+
+def _buscar_perfil_fixo_supabase() -> dict | None:
+    client = _supabase()
+    if client is None:
+        return None
+    user_id = _supabase_user_id()
+    resp = (client.table(TABELA_PERFIL_FIXO).select("*")
+            .eq("user_id", user_id).limit(1).execute())
+    return resp.data[0] if resp.data else None
 
 
 def _ler_banco_supabase(client, user_id: str) -> list[dict]:
@@ -263,6 +317,18 @@ def _registrar_sheets(sheet_id: str, vaga: dict, score: int, status: str):
 
 
 # ═══════════════════════ API publica (Supabase com fallback) ════════════════
+
+def buscar_perfil_fixo() -> dict | None:
+    """Busca o Meu Perfil de Candidatura (fatos fixos verificados) no Supabase.
+    Sem fallback no Sheets — e um conceito novo, so existe no Supabase. Retorna
+    None se nao configurado, sem perfil salvo, ou qualquer falha de rede
+    (o chamador simplesmente cai no fluxo reativo do banco de respostas)."""
+    try:
+        return _buscar_perfil_fixo_supabase()
+    except Exception as e:
+        print(f"[planilha] falha ao buscar perfil fixo (segue sem ele): {e}")
+        return None
+
 
 def registrar(sheet_id: str, vaga: dict, score: int, status: str):
     """Registra a candidatura em vagas_candidaturas (Supabase). Se falhar, cai

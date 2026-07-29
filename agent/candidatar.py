@@ -16,6 +16,7 @@ Seguranca adicional (formularios customizados variam por empresa):
   na pagina (URL de confirmacao ou texto de agradecimento). Sem isso, marca
   como incerta para revisao manual.
 """
+import re
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -82,7 +83,6 @@ _INDICADORES_SUCESSO = ["obrigado", "thank you", "application received"]
 
 
 def _extrair_valores_numericos(texto: str) -> list[float]:
-    import re
     texto = texto.replace("R$", "").replace("r$", "")
     valores = []
     for m in re.finditer(r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)\s*(k|mil)?", texto, re.I):
@@ -153,6 +153,60 @@ def _preencher_campo(page, campo: dict, resposta: str, cand: dict) -> bool:
         return False
 
 
+def _preencher_com_perfil(page, campo: dict, campo_perfil: str, perfil: dict) -> bool:
+    """Preenche um campo a partir do Meu Perfil de Candidatura (fatos fixos
+    ja verificados pelo usuario) — checado ANTES do banco de respostas
+    reativo, conforme desenhado."""
+    sel = f'#{campo["id"]}'
+    valor = perfil.get(campo_perfil)
+    if valor is None or valor == "":
+        return False
+
+    try:
+        if campo_perfil == "piso_salarial":
+            if campo["tag"] == "SELECT":
+                alvo = _melhor_faixa_salarial(campo.get("options") or [], float(valor))
+                if not alvo:
+                    return False
+                page.select_option(sel, label=alvo, timeout=4000)
+                return True
+            page.fill(sel, str(valor), timeout=4000)
+            return True
+
+        if campo_perfil == "autorizado_trabalhar_brasil":
+            if campo["type"] == "checkbox":
+                if valor:
+                    page.check(sel, timeout=4000)
+                else:
+                    page.uncheck(sel, timeout=4000)
+                return True
+            eh_ingles = bool(re.search(r"\b(you|your|are|is|do|does|the)\b", campo["label"].lower()))
+            texto = ("Yes" if eh_ingles else "Sim") if valor else ("No" if eh_ingles else "Não")
+            page.fill(sel, texto, timeout=4000)
+            return True
+
+        if campo_perfil == "nivel_ingles":
+            if campo["type"] == "checkbox":
+                avancado = str(valor).strip().lower() in ("avancado", "avançado", "fluente")
+                if avancado:
+                    page.check(sel, timeout=4000)
+                else:
+                    page.uncheck(sel, timeout=4000)
+                return True
+            page.fill(sel, str(valor), timeout=4000)
+            return True
+
+        if campo_perfil in ("ano_inicio", "ano_termino"):
+            page.fill(sel, str(int(valor)), timeout=4000)
+            return True
+
+        # escola, curso, linkedin_url: texto direto
+        page.fill(sel, str(valor), timeout=4000)
+        return True
+    except Exception:
+        return False
+
+
 def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: Path,
                         sheet_id: str = "") -> str:
     url = vaga["url"]
@@ -183,19 +237,31 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
 
         campos_faltando = page.evaluate(_SCAN_CAMPOS_OBRIGATORIOS)
 
+        perfil_fixo = planilha.buscar_perfil_fixo()
+
         ainda_faltando = []
         for campo in campos_faltando:
             pergunta_norm = planilha.normalizar(campo["label"])
-            resposta_banco = None
-            if sheet_id:
-                try:
-                    resposta_banco = planilha.consultar_resposta(sheet_id, pergunta_norm)
-                except Exception as e:
-                    print(f"[banco-respostas] falha ao consultar: {e}")
 
+            # 1) Meu Perfil de Candidatura — fatos fixos ja verificados, checado
+            #    primeiro, com sinonimos mais amplos (agent/planilha.py).
             preenchido = False
-            if resposta_banco and resposta_banco.get("sempre_usar") and resposta_banco.get("resposta"):
-                preenchido = _preencher_campo(page, campo, resposta_banco["resposta"], cand)
+            if perfil_fixo:
+                campo_perfil = planilha.classificar_campo_perfil(pergunta_norm)
+                if campo_perfil:
+                    preenchido = _preencher_com_perfil(page, campo, campo_perfil, perfil_fixo)
+
+            # 2) Banco de respostas reativo — so match exato, nunca aproximado.
+            if not preenchido:
+                resposta_banco = None
+                if sheet_id:
+                    try:
+                        resposta_banco = planilha.consultar_resposta(sheet_id, pergunta_norm)
+                    except Exception as e:
+                        print(f"[banco-respostas] falha ao consultar: {e}")
+
+                if resposta_banco and resposta_banco.get("sempre_usar") and resposta_banco.get("resposta"):
+                    preenchido = _preencher_campo(page, campo, resposta_banco["resposta"], cand)
 
             if not preenchido:
                 ainda_faltando.append(campo["label"])
