@@ -1,0 +1,40 @@
+candidato:
+  nome: "Vinicius Cardoso Brum"
+  email: "vinibrum10@gmail.com"
+  telefone: "+55 21 97016-3307"
+  linkedin: "https://linkedin.com/in/vinicius--brum"
+  cidade: "Rio de Janeiro, RJ, Brasil"
+  cv_master_pt: "cv_master_pt.md"
+  cv_master_en: "cv_master_en.md"
+
+filtros:
+  salario_minimo_brl: 20000
+  niveis_aceitos: ["gerente", "manager", "coordenador", "coordinator",
+                   "especialista", "specialist", "lead", "supervisor senior", "head"]
+  niveis_bloqueados: ["estagio", "intern", "junior", "jr", "trainee", "assistente", "tecnico de seguranca"]
+  localidades: ["rio de janeiro", "niteroi", "macae", "remote", "remoto", "brazil", "brasil", "latam"]
+  aceita_remoto_internacional: true
+  keywords_positivas: ["hse", "ehs", "ssma", "sst", "safety", "seguranca do trabalho",
+                       "qsms", "hseq", "iso 45001", "occupational"]
+  score_minimo_para_candidatar: 75
+
+fontes:
+  greenhouse_boards: ["capco", "totalenergies", "sbmoffshore"]
+  gupy_empresas: ["vale", "prio", "enel", "engie"]
+
+execucao:
+  modo: "dry-run"
+  score_minimo_auto: 85
+  max_candidaturas_dia: 10
+  pasta_saida: "output"
+  modelo_claude: "claude-sonnet-4-6"
+
+email_boards:
+  - nome: "vagas.com"
+    sender: "vagas.com.br"
+    link_contem: "vagas.com.br/vagas"
+  - nome: "glassdoor"
+    sender: "glassdoor.com"
+    link_contem: "glassdoor.com"
+
+planilha_id: "1vDvdAsS9dVIZRdBgR-eHJBamof_efeWas54g44lkIs8"
