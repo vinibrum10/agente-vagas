@@ -194,9 +194,7 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
                     print(f"[banco-respostas] falha ao consultar: {e}")
 
             preenchido = False
-            if (resposta_banco
-                    and (resposta_banco.get("sempre_usar") or "").strip().lower() == "sim"
-                    and resposta_banco.get("resposta")):
+            if resposta_banco and resposta_banco.get("sempre_usar") and resposta_banco.get("resposta"):
                 preenchido = _preencher_campo(page, campo, resposta_banco["resposta"], cand)
 
             if not preenchido:
@@ -205,7 +203,7 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
                     try:
                         planilha.registrar_pergunta_pendente(
                             sheet_id, campo["label"], campo["type"],
-                            "; ".join(campo.get("options") or []), vaga["titulo"])
+                            "; ".join(campo.get("options") or []), vaga["titulo"], vaga.get("empresa", ""))
                     except Exception as e:
                         print(f"[banco-respostas] falha ao registrar pendente: {e}")
 
