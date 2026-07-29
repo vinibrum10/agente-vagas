@@ -4,9 +4,65 @@
 - confirm: mostra resumo e exige digitar SIM antes de cada envio.
 - auto: envia direto (main.py ja aplicou a barreira de score).
 - LinkedIn/Gupy logado NAO sao automatizados (ToS/risco de ban).
+
+Seguranca adicional (formularios customizados variam por empresa):
+- Antes de qualquer envio, verifica campos obrigatorios (required, aria-required
+  ou label com "*") que continuam vazios apos o preenchimento padrao. Se houver,
+  ABORTA sem clicar em enviar — nunca em nenhum modo, nem auto.
+- Depois de clicar em enviar, so confirma sucesso se houver um indicador real
+  na pagina (URL de confirmacao ou texto de agradecimento). Sem isso, marca
+  como incerta para revisao manual em vez de assumir sucesso.
 """
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+
+_SCAN_CAMPOS_OBRIGATORIOS = """
+() => {
+  const isEmpty = (el) => {
+    if (el.tagName === 'SELECT') return !el.value || el.selectedIndex <= 0;
+    if (el.type === 'checkbox' || el.type === 'radio') return !el.checked;
+    return !el.value || el.value.trim() === '';
+  };
+  const labelPara = (el) => {
+    if (el.id) {
+      const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lbl && lbl.innerText.trim()) return lbl.innerText.trim();
+    }
+    const labelPai = el.closest('label');
+    if (labelPai && labelPai.innerText.trim()) return labelPai.innerText.trim();
+    const container = el.closest('.field, [class*="field"], div');
+    if (container) {
+      const lbl = container.querySelector('label');
+      if (lbl && lbl.innerText.trim()) return lbl.innerText.trim();
+    }
+    return el.name || el.id || el.placeholder || 'campo sem nome identificavel';
+  };
+
+  const candidatos = new Set();
+  document.querySelectorAll('input[required], select[required], textarea[required], [aria-required="true"]')
+    .forEach((el) => candidatos.add(el));
+  document.querySelectorAll('label').forEach((lbl) => {
+    if (!lbl.innerText || !lbl.innerText.includes('*')) return;
+    let el = null;
+    if (lbl.htmlFor) el = document.getElementById(lbl.htmlFor);
+    if (!el) el = lbl.querySelector('input, select, textarea');
+    if (!el) {
+      const container = lbl.closest('.field, [class*="field"], div');
+      if (container) el = container.querySelector('input, select, textarea');
+    }
+    if (el) candidatos.add(el);
+  });
+
+  const vazios = [];
+  candidatos.forEach((el) => {
+    if (el.type === 'file' || el.type === 'hidden' || el.disabled) return;
+    if (isEmpty(el)) vazios.push(labelPara(el));
+  });
+  return [...new Set(vazios)];
+}
+"""
+
+_INDICADORES_SUCESSO = ["obrigado", "thank you", "application received"]
 
 
 def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: Path) -> str:
@@ -36,6 +92,13 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
         shot = pasta / "preview_formulario.png"
         page.screenshot(path=str(shot), full_page=True)
 
+        campos_faltando = page.evaluate(_SCAN_CAMPOS_OBRIGATORIOS)
+        if campos_faltando:
+            browser.close()
+            lista = ", ".join(campos_faltando)
+            return (f"INCOMPLETA: requer preenchimento manual — "
+                     f"campos customizados nao suportados: [{lista}]")
+
         if modo == "dry-run":
             browser.close()
             return f"DRY-RUN: formulario preenchido e salvo em {shot}. Nada foi enviado."
@@ -50,9 +113,18 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
         try:
             page.click("input[type=submit], button[type=submit]", timeout=8000)
             page.wait_for_load_state("networkidle")
-            page.screenshot(path=str(pasta / "confirmacao_envio.png"), full_page=True)
+            shot_final = pasta / "confirmacao_envio.png"
+            page.screenshot(path=str(shot_final), full_page=True)
+
+            url_final = page.url.lower()
+            texto_final = page.locator("body").inner_text().lower()
+            sucesso = "confirmation" in url_final or any(
+                ind in texto_final for ind in _INDICADORES_SUCESSO)
+
             browser.close()
-            return "ENVIADA com sucesso."
+            if sucesso:
+                return "ENVIADA com sucesso."
+            return f"INCERTA: verifique manualmente. Screenshot: {shot_final}"
         except Exception as e:
             browser.close()
             return f"Falha no envio: {e}. Candidate-se manualmente pelo link."

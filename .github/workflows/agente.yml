@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: "Modo de execucao (disparo manual apenas; o agendamento sempre usa auto)"
+        description: "Modo de execucao (disparo manual apenas; agendamento cron usa confirm por enquanto)"
         type: choice
         default: "dry-run"
         options: [dry-run, confirm, auto]
@@ -35,7 +35,11 @@ jobs:
       - name: Rodar agente
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          MODO: ${{ github.event.inputs.modo || 'auto' }}
+          # TEMPORARIO: agendamento cron usa 'confirm' (nao 'auto') ate a
+          # detecao de campos obrigatorios/verificacao de sucesso em
+          # candidatar.py serem validadas com casos reais. Reverter para
+          # 'auto' apos validar.
+          MODO: ${{ github.event.inputs.modo || 'confirm' }}
         run: |
           case "$MODO" in
             auto) python main.py --auto ;;
