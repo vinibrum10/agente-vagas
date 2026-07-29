@@ -62,4 +62,17 @@ Assinada por Vinicius. Tom: direto, senior, sem bajulacao. Cite 2 resultados con
 reducao de 15% nos indices de frequencia/gravidade (2024) e economia de R$1,2M/ano em treinamentos.
 Mencione a dupla formacao (Eng. Eletricista + Eng. Seguranca) se a vaga for tecnica.
 Saida: apenas a mensagem."""
+    rascunho = _chamar(modelo, prompt, 400)
+    return _revisar_texto(rascunho, modelo)
+
+
+def _revisar_texto(texto: str, modelo: str) -> str:
+    """Segunda passada: revisa so erros de digitacao/gramatica, sem mudar conteudo/tom.
+    Rede de seguranca para texto que vai direto para a caixa de um recrutador."""
+    prompt = f"""Revise o texto abaixo apenas para erros de digitacao e gramatica.
+Nao altere conteudo, tom, estrutura ou informacoes. Nao adicione nem remova nada alem
+de correcoes ortograficas/gramaticais. Saida: apenas a versao corrigida, sem comentarios.
+
+TEXTO:
+{texto}"""
     return _chamar(modelo, prompt, 400)
