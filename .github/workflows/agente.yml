@@ -2,7 +2,13 @@ name: Agente de Vagas
 on:
   schedule:
     - cron: "0 11 * * 2,4"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de execucao (disparo manual apenas; o agendamento sempre usa auto)"
+        type: choice
+        default: "dry-run"
+        options: [dry-run, confirm, auto]
 
 jobs:
   rodar:
@@ -26,10 +32,16 @@ jobs:
           echo "${{ secrets.GOOGLE_CREDENTIALS_B64 }}" | base64 -d > credentials.json
           echo "${{ secrets.GOOGLE_TOKEN_B64 }}" | base64 -d > token.json
 
-      - name: Rodar agente (auto)
+      - name: Rodar agente
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python main.py --auto
+          MODO: ${{ github.event.inputs.modo || 'auto' }}
+        run: |
+          case "$MODO" in
+            auto) python main.py --auto ;;
+            confirm) python main.py --confirm ;;
+            *) python main.py ;;
+          esac
 
       - name: Guardar pacotes gerados
         if: always()
