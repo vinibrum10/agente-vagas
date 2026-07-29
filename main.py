@@ -13,17 +13,20 @@ import subprocess
 from pathlib import Path
 import yaml
 
-from agent import fetch_jobs, inteligencia, candidatar
-
 BASE = Path(__file__).parent
 
-# Carrega .env — o cron/Agendador NAO herda variaveis do seu terminal.
+# Carrega .env ANTES de importar agent.inteligencia — esse modulo cria o
+# client Anthropic no import (le ANTHROPIC_API_KEY do ambiente nesse momento).
+# cron/Agendador NAO herda variaveis do seu terminal, entao sem isso o client
+# sobe sem chave e toda chamada falha silenciosamente (score cai para 0).
 _env = BASE / ".env"
 if _env.exists():
     for _l in _env.read_text().splitlines():
         if "=" in _l and not _l.strip().startswith("#"):
             _k, _v = _l.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
+
+from agent import fetch_jobs, inteligencia, candidatar
 
 
 def md_para_pdf(md_path: Path, pdf_path: Path):

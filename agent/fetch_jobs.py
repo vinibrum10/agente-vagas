@@ -1,7 +1,13 @@
 """Coleta vagas de APIs publicas (sem login, sem scraping fragil)."""
+import unicodedata
+
 import requests
 
 UA = {"User-Agent": "Mozilla/5.0 (agente-vagas-pessoal)"}
+
+
+def _sem_acento(s: str) -> str:
+    return unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
 
 
 def greenhouse(board: str) -> list[dict]:
@@ -46,11 +52,13 @@ def gupy(slug: str) -> list[dict]:
 
 def filtro_rapido(vaga: dict, cfg: dict) -> bool:
     f = cfg["filtros"]
-    t = vaga["titulo"].lower()
+    t = _sem_acento(vaga["titulo"].lower())
     loc = vaga["local"].lower()
-    if any(b in t for b in f["niveis_bloqueados"]):
+    bloqueados = [_sem_acento(b) for b in f["niveis_bloqueados"]]
+    positivas = [_sem_acento(k) for k in f["keywords_positivas"]]
+    if any(b in t for b in bloqueados):
         return False
-    if not any(k in t for k in f["keywords_positivas"]):
+    if not any(k in t for k in positivas):
         return False
     loc_ok = any(l in loc for l in f["localidades"]) or loc.strip() == ""
     return loc_ok
