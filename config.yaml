@@ -6,6 +6,7 @@ candidato:
   cidade: "Rio de Janeiro, RJ, Brasil"
   cv_master_pt: "cv_master_pt.md"
   cv_master_en: "cv_master_en.md"
+  expectativa_salarial_minima: 19000  # R$/mes, piso nao negociavel, vale p/ qualquer vaga
 
 filtros:
   salario_minimo_brl: 20000

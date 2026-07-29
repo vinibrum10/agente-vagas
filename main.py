@@ -88,7 +88,8 @@ def main():
             modo_vaga = modo
             if modo == "auto" and av["score"] < cfg["execucao"]["score_minimo_auto"]:
                 modo_vaga = "dry-run"
-            status = candidatar.aplicar_greenhouse(vaga, cand, cv_pdf, modo_vaga, pasta)
+            status = candidatar.aplicar_greenhouse(
+                vaga, cand, cv_pdf, modo_vaga, pasta, cfg.get("planilha_id", ""))
         else:
             status = candidatar.instrucao_manual(vaga)
         (pasta / "STATUS.txt").write_text(status)
