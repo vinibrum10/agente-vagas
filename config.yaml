@@ -19,8 +19,8 @@ filtros:
   score_minimo_para_candidatar: 75
 
 fontes:
-  greenhouse_boards: ["capco", "totalenergies", "sbmoffshore"]
-  gupy_empresas: ["vale", "prio", "enel", "engie"]
+  greenhouse_boards: ["capco"]
+  gupy_empresas: ["prio", "vibraenergia", "genteraizen"]
 
 execucao:
   modo: "dry-run"
@@ -36,5 +36,8 @@ email_boards:
   - nome: "glassdoor"
     sender: "glassdoor.com"
     link_contem: "glassdoor.com"
+  - nome: "google-alertas"
+    sender: "googlealerts-noreply@google.com"
+    link_contem: "linkedin.com/jobs"
 
 planilha_id: "1vDvdAsS9dVIZRdBgR-eHJBamof_efeWas54g44lkIs8"
