@@ -257,9 +257,6 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
         except Exception:
             pass
 
-        shot = pasta / "preview_formulario.png"
-        page.screenshot(path=str(shot), full_page=True)
-
         campos_faltando = page.evaluate(_SCAN_CAMPOS_OBRIGATORIOS)
 
         perfil_fixo = planilha.buscar_perfil_fixo()
@@ -297,6 +294,9 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
                             "; ".join(campo.get("options") or []), vaga["titulo"], vaga.get("empresa", ""))
                     except Exception as e:
                         print(f"[banco-respostas] falha ao registrar pendente: {e}")
+
+        shot = pasta / "preview_formulario.png"
+        page.screenshot(path=str(shot), full_page=True)
 
         if ainda_faltando:
             browser.close()
