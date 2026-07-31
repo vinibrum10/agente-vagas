@@ -202,6 +202,19 @@ def _preencher_combobox(page, campo: dict, valor: str) -> bool:
         return False
 
 
+def _preencher_combobox_booleano(page, campo: dict, valor: bool) -> bool:
+    """Combobox fechado tipo Sim/Nao, mas o idioma das OPCOES nao tem relacao
+    confiavel com o idioma do LABEL da pergunta (ja vimos um campo com label
+    em portugues cujas unicas opcoes sao 'Yes'/'No' em ingles). Em vez de
+    adivinhar pelo texto do label, tenta as variantes conhecidas em ordem e
+    deixa a leitura-de-volta real decidir qual bateu."""
+    candidatos = ["Yes", "Sim"] if valor else ["No", "Não"]
+    for texto in candidatos:
+        if _preencher_combobox(page, campo, texto):
+            return True
+    return False
+
+
 def _preencher_campo(page, campo: dict, resposta: str, cand: dict) -> bool:
     sel = f'#{campo["id"]}'
     eh_salarial = any(k in planilha.normalizar(campo["label"]) for k in ("salari", "salary"))
@@ -258,14 +271,25 @@ def _preencher_com_perfil(page, campo: dict, campo_perfil: str, perfil: dict) ->
                 esperado = bool(valor)
                 (page.check if esperado else page.uncheck)(sel, timeout=4000)
                 return page.is_checked(sel) == esperado
+            if campo.get("combobox"):
+                return _preencher_combobox_booleano(page, campo, bool(valor))
             eh_ingles = bool(re.search(r"\b(you|your|are|is|do|does|the)\b", campo["label"].lower()))
             texto = ("Yes" if eh_ingles else "Sim") if valor else ("No" if eh_ingles else "Não")
 
         elif campo_perfil == "nivel_ingles":
+            avancado = str(valor).strip().lower() in ("avancado", "avançado", "fluente")
             if campo["type"] == "checkbox":
-                avancado = str(valor).strip().lower() in ("avancado", "avançado", "fluente")
                 (page.check if avancado else page.uncheck)(sel, timeout=4000)
                 return page.is_checked(sel) == avancado
+            if campo.get("combobox"):
+                # Duas formas conhecidas de perguntar isso no Greenhouse:
+                # (a) select de nivel ("Avancado", "Fluente", ...) — tenta o
+                #     texto literal primeiro; (b) pergunta fechada Sim/Nao
+                #     ("Possui ingles avancado?") — so' tem opcoes Yes/No, o
+                #     texto literal nao bate em nenhuma sugestao e cai aqui.
+                if _preencher_combobox(page, campo, str(valor)):
+                    return True
+                return _preencher_combobox_booleano(page, campo, avancado)
             texto = str(valor)
 
         elif campo_perfil in ("ano_inicio", "ano_termino"):
