@@ -15,7 +15,12 @@ Seguranca adicional (formularios customizados variam por empresa):
 - Depois de clicar em enviar, so confirma sucesso se houver um indicador real
   na pagina (URL de confirmacao ou texto de agradecimento). Sem isso, marca
   como incerta para revisao manual.
+- Modo confirm em CI (GitHub Actions): input() nao funciona sem terminal, entao
+  em vez de chamar input() o agente para no estado PRONTA_PARA_ENVIO — o botao
+  "Candidatar-se a esta vaga" do SGP e o unico caminho real de confirmacao ali.
+  Localmente (fora do CI), o prompt interativo continua funcionando normal.
 """
+import os
 import re
 from pathlib import Path
 
@@ -207,6 +212,26 @@ def _preencher_com_perfil(page, campo: dict, campo_perfil: str, perfil: dict) ->
         return False
 
 
+def _aguardar_confirmacao(vaga: dict, shot: Path) -> str | None:
+    """Modo confirm: decide se para aqui ou segue para o clique de enviar.
+
+    Em CI (GitHub Actions) nao ha terminal — input() travaria ou lancaria
+    excecao. Em vez disso, para no estado PRONTA_PARA_ENVIO; o botao
+    "Candidatar-se a esta vaga" do SGP passa a ser o unico caminho real de
+    confirmacao nesse caso. Localmente, mantem o prompt interativo de sempre.
+
+    Retorna um status terminal (a chamadora deve fechar o browser e devolver
+    esse valor) ou None se pode prosseguir para o clique de enviar.
+    """
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return f"PRONTA_PARA_ENVIO: aguardando confirmacao via app. Preview: {shot}"
+    print(f"\n>>> Pronto para ENVIAR: {vaga['titulo']} @ {vaga['empresa']}")
+    print(f">>> Confira o preview: {shot}")
+    if input(">>> Digite SIM para enviar: ").strip().upper() != "SIM":
+        return "Cancelado pelo usuario."
+    return None
+
+
 def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: Path,
                         sheet_id: str = "") -> str:
     url = vaga["url"]
@@ -283,11 +308,10 @@ def aplicar_greenhouse(vaga: dict, cand: dict, cv_pdf: Path, modo: str, pasta: P
             return f"DRY-RUN: formulario preenchido e salvo em {shot}. Nada foi enviado."
 
         if modo == "confirm":
-            print(f"\n>>> Pronto para ENVIAR: {vaga['titulo']} @ {vaga['empresa']}")
-            print(f">>> Confira o preview: {shot}")
-            if input(">>> Digite SIM para enviar: ").strip().upper() != "SIM":
+            resultado = _aguardar_confirmacao(vaga, shot)
+            if resultado is not None:
                 browser.close()
-                return "Cancelado pelo usuario."
+                return resultado
 
         try:
             page.click("input[type=submit], button[type=submit]", timeout=8000)

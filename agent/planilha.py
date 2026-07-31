@@ -104,6 +104,14 @@ def _supabase_user_id() -> str:
     return user_id
 
 
+def _texto_observacoes(status: str) -> str:
+    if status.startswith("ENVIADA"):
+        return "enviada pelo agente (--auto)"
+    if status.startswith("PRONTA_PARA_ENVIO"):
+        return "aguardando confirmação no app"
+    return "aguardando envio manual"
+
+
 def _registrar_supabase(vaga: dict, score: int, status: str):
     client = _supabase()
     if client is None:
@@ -123,7 +131,7 @@ def _registrar_supabase(vaga: dict, score: int, status: str):
         "data_envio": datetime.now().strftime("%Y-%m-%d") if enviada else None,
         "retorno": "",
         "link": link,
-        "observacoes": "enviada pelo agente (--auto)" if enviada else "aguardando envio manual",
+        "observacoes": _texto_observacoes(status),
     }
 
     # "Upsert" feito em Python (por link) — evita duplicar a mesma vaga a cada
@@ -146,7 +154,7 @@ def _registrar_supabase(vaga: dict, score: int, status: str):
 def _buscar_perfil_fixo_supabase() -> dict | None:
     client = _supabase()
     if client is None:
-        return None
+        raise RuntimeError("Supabase nao configurado (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY)")
     user_id = _supabase_user_id()
     resp = (client.table(TABELA_PERFIL_FIXO).select("*")
             .eq("user_id", user_id).limit(1).execute())
@@ -306,7 +314,7 @@ def _registrar_sheets(sheet_id: str, vaga: dict, score: int, status: str):
         "",
         "",
         vaga.get("url", ""),
-        "enviada pelo agente (--auto)" if enviada else "aguardando envio manual",
+        _texto_observacoes(status),
     ]
     _sheets().spreadsheets().values().append(
         spreadsheetId=sheet_id,
