@@ -78,7 +78,10 @@ _SCAN_CAMPOS_OBRIGATORIOS = """
       options = [...el.options].map((o) => o.text.trim())
         .filter((t) => t && !/selecion|select\\.\\.\\./i.test(t));
     }
-    resultado.push({ id: el.id, tag: el.tagName, type: el.type || '', label: labelPara(el), options });
+    resultado.push({
+      id: el.id, tag: el.tagName, type: el.type || '', label: labelPara(el), options,
+      combobox: el.getAttribute('role') === 'combobox',
+    });
   });
   return resultado;
 }
@@ -131,6 +134,74 @@ def _melhor_opcao(resposta: str, opcoes: list[str]) -> str | None:
     return None
 
 
+def _valor_atual_campo(page, campo: dict) -> str:
+    """Le de volta o valor REALMENTE confirmado do campo na pagina — nunca
+    confiar apenas em 'a chamada de preenchimento nao lancou excecao'.
+
+    Combobox react-select (Escola/Escolaridade/Disciplina etc.) exige um
+    tratamento especial: apos uma selecao bem-sucedida, o proprio <input>
+    de busca volta a ficar vazio (o texto selecionado passa a aparecer em
+    um elemento irmao, .select__single-value) — ler input_value() nesse
+    caso reportaria falso-negativo mesmo com a selecao correta.
+    """
+    sel = f'#{campo["id"]}'
+    try:
+        if campo.get("combobox"):
+            return page.eval_on_selector(
+                sel,
+                "(node) => { const c = node.closest('.select__control'); "
+                "const sv = c ? c.querySelector('.select__single-value') : null; "
+                "return sv ? sv.innerText.trim() : ''; }",
+            )
+        if campo["tag"] == "SELECT":
+            return page.eval_on_selector(
+                sel,
+                "el => el.options[el.selectedIndex] ? el.options[el.selectedIndex].text.trim() : ''",
+            )
+        return page.input_value(sel).strip()
+    except Exception:
+        return ""
+
+
+def _confere_valor(esperado: str, atual: str) -> bool:
+    if not atual:
+        return False
+    e = esperado.strip().lower()
+    a = atual.strip().lower()
+    return e == a or e in a or a in e
+
+
+def _preencher_combobox(page, campo: dict, valor: str) -> bool:
+    """Combobox react-select (Escola/Escolaridade/Disciplina/etc. do
+    Greenhouse) nao aceita page.fill() direto: e' preciso digitar para
+    disparar a busca e clicar numa sugestao real da lista suspensa. Se
+    nenhuma sugestao bater com o valor do perfil, o campo fica pendente
+    (nunca preenche com texto livre que o Greenhouse nao aceitaria)."""
+    sel = f'#{campo["id"]}'
+    listbox_sel = f'[id="react-select-{campo["id"]}-listbox"]'
+    try:
+        loc = page.locator(sel)
+        loc.click(timeout=4000)
+        loc.fill("")
+        loc.type(valor, delay=60, timeout=8000)
+        listbox = page.locator(listbox_sel)
+        listbox.locator("[role='option']").first.wait_for(timeout=3000)
+        opcoes = listbox.locator("[role='option']").all_inner_texts()
+        escolhida = _melhor_opcao(valor, opcoes)
+        if not escolhida:
+            page.keyboard.press("Escape")
+            return False
+        listbox.locator("[role='option']").nth(opcoes.index(escolhida)).click(timeout=4000)
+        page.wait_for_timeout(300)
+        return _confere_valor(valor, _valor_atual_campo(page, campo))
+    except Exception:
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+
 def _preencher_campo(page, campo: dict, resposta: str, cand: dict) -> bool:
     sel = f'#{campo["id"]}'
     eh_salarial = any(k in planilha.normalizar(campo["label"]) for k in ("salari", "salary"))
@@ -145,15 +216,15 @@ def _preencher_campo(page, campo: dict, resposta: str, cand: dict) -> bool:
             if not alvo:
                 return False
             page.select_option(sel, label=alvo, timeout=4000)
-            return True
+            return _confere_valor(alvo, _valor_atual_campo(page, campo))
         if campo["type"] == "checkbox":
-            if resposta.strip().lower() in ("sim", "yes", "true", "1"):
-                page.check(sel, timeout=4000)
-            else:
-                page.uncheck(sel, timeout=4000)
-            return True
+            esperado = resposta.strip().lower() in ("sim", "yes", "true", "1")
+            (page.check if esperado else page.uncheck)(sel, timeout=4000)
+            return page.is_checked(sel) == esperado
+        if campo.get("combobox"):
+            return _preencher_combobox(page, campo, resposta)
         page.fill(sel, resposta, timeout=4000)
-        return True
+        return _confere_valor(resposta, _valor_atual_campo(page, campo))
     except Exception:
         return False
 
@@ -161,7 +232,12 @@ def _preencher_campo(page, campo: dict, resposta: str, cand: dict) -> bool:
 def _preencher_com_perfil(page, campo: dict, campo_perfil: str, perfil: dict) -> bool:
     """Preenche um campo a partir do Meu Perfil de Candidatura (fatos fixos
     ja verificados pelo usuario) — checado ANTES do banco de respostas
-    reativo, conforme desenhado."""
+    reativo, conforme desenhado.
+
+    Toda saida passa por leitura-de-volta (_valor_atual_campo /
+    _confere_valor): a funcao so retorna True se o valor realmente 'colou'
+    no campo, nunca so porque a chamada de preenchimento nao lancou
+    excecao."""
     sel = f'#{campo["id"]}'
     valor = perfil.get(campo_perfil)
     if valor is None or valor == "":
@@ -174,40 +250,35 @@ def _preencher_com_perfil(page, campo: dict, campo_perfil: str, perfil: dict) ->
                 if not alvo:
                     return False
                 page.select_option(sel, label=alvo, timeout=4000)
-                return True
-            page.fill(sel, str(valor), timeout=4000)
-            return True
+                return _confere_valor(alvo, _valor_atual_campo(page, campo))
+            texto = str(valor)
 
-        if campo_perfil == "autorizado_trabalhar_brasil":
+        elif campo_perfil == "autorizado_trabalhar_brasil":
             if campo["type"] == "checkbox":
-                if valor:
-                    page.check(sel, timeout=4000)
-                else:
-                    page.uncheck(sel, timeout=4000)
-                return True
+                esperado = bool(valor)
+                (page.check if esperado else page.uncheck)(sel, timeout=4000)
+                return page.is_checked(sel) == esperado
             eh_ingles = bool(re.search(r"\b(you|your|are|is|do|does|the)\b", campo["label"].lower()))
             texto = ("Yes" if eh_ingles else "Sim") if valor else ("No" if eh_ingles else "Não")
-            page.fill(sel, texto, timeout=4000)
-            return True
 
-        if campo_perfil == "nivel_ingles":
+        elif campo_perfil == "nivel_ingles":
             if campo["type"] == "checkbox":
                 avancado = str(valor).strip().lower() in ("avancado", "avançado", "fluente")
-                if avancado:
-                    page.check(sel, timeout=4000)
-                else:
-                    page.uncheck(sel, timeout=4000)
-                return True
-            page.fill(sel, str(valor), timeout=4000)
-            return True
+                (page.check if avancado else page.uncheck)(sel, timeout=4000)
+                return page.is_checked(sel) == avancado
+            texto = str(valor)
 
-        if campo_perfil in ("ano_inicio", "ano_termino"):
-            page.fill(sel, str(int(valor)), timeout=4000)
-            return True
+        elif campo_perfil in ("ano_inicio", "ano_termino"):
+            texto = str(int(valor))
 
-        # escola, curso, linkedin_url: texto direto
-        page.fill(sel, str(valor), timeout=4000)
-        return True
+        else:
+            # escola, curso, linkedin_url: texto direto
+            texto = str(valor)
+
+        if campo.get("combobox"):
+            return _preencher_combobox(page, campo, texto)
+        page.fill(sel, texto, timeout=4000)
+        return _confere_valor(texto, _valor_atual_campo(page, campo))
     except Exception:
         return False
 
